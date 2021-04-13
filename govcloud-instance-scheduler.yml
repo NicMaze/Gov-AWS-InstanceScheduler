@@ -1,0 +1,809 @@
+Description: '(SO0030) - aws-instance-scheduler, version v1.3.3'
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Scheduler (version v1.3.3)
+        Parameters:
+          - TagName
+          - ScheduledServices
+          - ScheduleRdsClusters
+          - CreateRdsSnapshot
+          - SchedulingActive
+          - Regions
+          - DefaultTimezone
+          - CrossAccountRoles
+          - ScheduleLambdaAccount
+          - SchedulerFrequency
+          - MemorySize
+      - Label:
+          default: S3 Preparation
+        Parameters:
+          - S3DeploymentBucketName
+          - S3DeploymentFile   
+      - Label:
+          default: Options
+        Parameters:
+          - UseCloudWatchMetrics
+          - Trace
+          - SendAnonymousData
+      - Label:
+          default: Other parameters
+        Parameters:
+          - LogRetentionDays
+          - StartedTags
+          - StoppedTags
+    ParameterLabels:
+      LogRetentionDays:
+        default: Log retention days
+      StartedTags:
+        default: Started tags
+      StoppedTags:
+        default: Stopped tags
+      SchedulingActive:
+        default: Scheduling enabled
+      CrossAccountRoles:
+        default: Cross-account roles
+      ScheduleLambdaAccount:
+        default: This account
+      UseCloudWatchMetrics:
+        default: Enable CloudWatch Metrics
+      Trace:
+        default: Enable CloudWatch Logs
+      TagName:
+        default: Instance Scheduler tag name
+      ScheduledServices:
+        default: Service(s) to schedule
+      ScheduleRdsClusters:
+        default: Schedule Aurora Clusters
+      CreateRdsSnapshot:
+        default: Create RDS instance snapshot
+      DefaultTimezone:
+        default: Default time zone
+      SchedulerFrequency:
+        default: Frequency
+      Regions:
+        default: Region(s)
+      MemorySize:
+        default: Memory size
+      SendAnonymousData:
+        default: Send anonymous usage data
+Parameters:
+  SchedulingActive:
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Activate or deactivate scheduling.
+  ScheduledServices:
+    Type: String
+    Default: EC2
+    AllowedValues:
+      - EC2
+      - RDS
+      - Both
+    Description: Scheduled Services.
+  ScheduleRdsClusters:
+    Type: String
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Enable scheduling of Aurora clusters for RDS Service.
+  CreateRdsSnapshot:
+    Type: String
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: >-
+      Create snapshot before stopping RDS instances(does not apply to Aurora
+      Clusters).
+  MemorySize:
+    Type: Number
+    Default: 128
+    AllowedValues:
+      - '128'
+      - '384'
+      - '512'
+      - '640'
+      - '768'
+      - '896'
+      - '1024'
+      - '1152'
+      - '1280'
+      - '1408'
+      - '1536'
+    Description: >-
+      Size of the Lambda function running the scheduler, increase size when
+      processing large numbers of instances.
+  UseCloudWatchMetrics:
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Collect instance scheduling data using CloudWatch metrics.
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    AllowedValues:
+      - '1'
+      - '3'
+      - '5'
+      - '7'
+      - '14'
+      - '14'
+      - '30'
+      - '60'
+      - '90'
+      - '120'
+      - '150'
+      - '180'
+      - '365'
+      - '400'
+      - '545'
+      - '731'
+      - '1827'
+      - '3653'
+    Description: Retention days for scheduler logs.
+  Trace:
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Enable logging of detailed information in CloudWatch logs.
+  TagName:
+    Type: String
+    Default: Schedule
+    Description: >-
+      Name of tag to use for associating instance schedule schemas with service
+      instances.
+    MaxLength: 127
+    MinLength: 1
+  DefaultTimezone:
+    Type: String
+    Default: US/Eastern
+    AllowedValues:
+      - US/Alaska
+      - US/Arizona
+      - US/Central
+      - US/Eastern
+      - US/Hawaii
+      - US/Mountain
+      - US/Pacific
+      - UTC
+    Description: Choose the default Time Zone.
+  Regions:
+    Type: CommaDelimitedList
+    Description: >-
+      List of regions in which instances are scheduled, leave blank for current
+      region only.
+  CrossAccountRoles:
+    Type: CommaDelimitedList
+    Description: >-
+      Comma separated list of ARN's for cross account access roles. These roles
+      must be created in all checked accounts the scheduler to start and stop
+      instances.
+  StartedTags:
+    Type: String
+    Default: 'ScheduleMessage=Started on {month}/{day}/{year} at {hour}:{minute}({timezone})'
+    Description: >-
+      Comma separated list of tagname and values on the formt
+      name=value,name=value,.. that are set on started instances
+  StoppedTags:
+    Type: String
+    Default: 'ScheduleMessage=Stopped on {month}/{day}/{year} at {hour}:{minute}({timezone})'
+    Description: >-
+      Comma separated list of tagname and values on the formt
+      name=value,name=value,.. that are set on stopped instances
+  SchedulerFrequency:
+    Type: String
+    Default: '15'
+    AllowedValues:
+      - '1'
+      - '2'
+      - '5'
+      - '10'
+      - '15'
+      - '30'
+      - '60'
+    Description: Scheduler running frequency in minutes.
+  ScheduleLambdaAccount:
+    Type: String
+    Default: 'Yes'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Schedule instances in this account.
+  SendAnonymousData:
+    Type: String
+    Default: 'No'
+    AllowedValues:
+      - 'Yes'
+      - 'No'
+    Description: Send Anonymous Metrics Data.
+  # S3 bucket and zip file name
+  S3DeploymentBucketName:
+    Type: String
+    Description: S3 Bucket Name.
+    Default: 'aws-instance-scheduler'
+  S3DeploymentFile:
+    Type: String
+    Description: S3 zip file for Lambda function.
+    Default: 'instance-scheduler.zip'
+Mappings:
+  mappings:
+    TrueFalse:
+      'Yes': 'True'
+      'No': 'False'
+    EnabledDisabled:
+      'Yes': ENABLED
+      'No': DISABLED
+    Services:
+      EC2: ec2
+      RDS: rds
+      Both: 'ec2,rds'
+    Timeouts:
+      '1': cron(0/1 * * * ? *)
+      '2': cron(0/2 * * * ? *)
+      '5': cron(0/5 * * * ? *)
+      '10': cron(0/10 * * * ? *)
+      '15': cron(0/15 * * * ? *)
+      '30': cron(0/30 * * * ? *)
+      '60': cron(0 0/1 * * ? *)
+    Settings:
+      MetricsUrl: 'https://metrics.awssolutionsbuilder.com/generic'
+      MetricsSolutionId: S00030
+Resources:
+  SchedulerLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Join 
+        - ''
+        - - !Ref 'AWS::StackName'
+          - '-logs'
+      RetentionInDays: !Ref LogRetentionDays
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/SchedulerLogGroup/Resource
+  SchedulerRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+                - lambda.amazonaws.com
+        Version: 2012-10-17
+      Path: /
+    Metadata:
+      'aws:cdk:path': instance-scheduler/SchedulerRole/Resource
+  SchedulerRoleDefaultPolicy66F774B8:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'dynamodb:BatchGetItem'
+              - 'dynamodb:GetRecords'
+              - 'dynamodb:GetShardIterator'
+              - 'dynamodb:Query'
+              - 'dynamodb:GetItem'
+              - 'dynamodb:Scan'
+              - 'dynamodb:BatchWriteItem'
+              - 'dynamodb:PutItem'
+              - 'dynamodb:UpdateItem'
+              - 'dynamodb:DeleteItem'
+            Effect: Allow
+            Resource:
+              - !GetAtt 
+                - StateTable
+                - Arn
+              - !Ref 'AWS::NoValue'
+          - Action:
+              - 'dynamodb:DeleteItem'
+              - 'dynamodb:GetItem'
+              - 'dynamodb:PutItem'
+              - 'dynamodb:Query'
+              - 'dynamodb:Scan'
+              - 'dynamodb:BatchWriteItem'
+            Effect: Allow
+            Resource:
+              - !GetAtt 
+                - ConfigTable
+                - Arn
+              - !GetAtt 
+                - MaintenanceWindowTable
+                - Arn
+        Version: 2012-10-17
+      PolicyName: SchedulerRoleDefaultPolicy66F774B8
+      Roles:
+        - !Ref SchedulerRole
+    Metadata:
+      'aws:cdk:path': instance-scheduler/SchedulerRole/DefaultPolicy/Resource
+  InstanceSchedulerEncryptionKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      KeyPolicy:
+        Statement:
+          - Action: 'kms:*'
+            Effect: Allow
+            Principal:
+              AWS: !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+            Resource: '*'
+            Sid: default
+          - Action:
+              - 'kms:GenerateDataKey*'
+              - 'kms:Decrypt'
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt 
+                - SchedulerRole
+                - Arn
+            Resource: '*'
+            Sid: Allows use of key
+          - Action:
+              - 'kms:Create*'
+              - 'kms:Describe*'
+              - 'kms:Enable*'
+              - 'kms:List*'
+              - 'kms:Put*'
+              - 'kms:Update*'
+              - 'kms:Revoke*'
+              - 'kms:Disable*'
+              - 'kms:Get*'
+              - 'kms:Delete*'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+              - 'kms:GenerateDataKey'
+              - 'kms:TagResource'
+              - 'kms:UntagResource'
+            Effect: Allow
+            Principal:
+              AWS: !Join 
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+            Resource: '*'
+        Version: 2012-10-17
+      Description: Key for SNS
+      Enabled: true
+      EnableKeyRotation: true
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/InstanceSchedulerEncryptionKey/Resource
+  InstanceSchedulerEncryptionKeyAlias:
+    Type: 'AWS::KMS::Alias'
+    Properties:
+      AliasName: alias/instance-scheduler-encryption-key
+      TargetKeyId: !GetAtt 
+        - InstanceSchedulerEncryptionKey
+        - Arn
+    Metadata:
+      'aws:cdk:path': instance-scheduler/InstanceSchedulerEncryptionKeyAlias/Resource
+  InstanceSchedulerSnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: !Ref 'AWS::StackName'
+      KmsMasterKeyId: !Ref InstanceSchedulerEncryptionKey
+    Metadata:
+      'aws:cdk:path': instance-scheduler/InstanceSchedulerSnsTopic/Resource
+  instanceschedulerlambdaLambdaFunctionServiceRoleEBF44CD1:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: 2012-10-17
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Effect: Allow
+                Resource: !Join 
+                  - ''
+                  - - 'arn:aws-us-gov:logs:us-gov-east-1:'
+                    - !Ref 'AWS::AccountId'
+                    - ':log-group:/*'
+            Version: 2012-10-17
+          PolicyName: LambdaFunctionServiceRolePolicy
+    Metadata:
+      'aws:cdk:path': >-
+        instance-scheduler/instance-scheduler-lambda/LambdaFunctionServiceRole/Resource
+  Main:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        S3Bucket: !Ref S3DeploymentBucketName
+        S3Key: !Ref S3DeploymentFile
+      Handler: main.lambda_handler
+      Role: !GetAtt 
+        - SchedulerRole
+        - Arn
+      Runtime: python3.7
+      Description: 'EC2 and RDS instance scheduler, version v1.3.3'
+      Environment:
+        Variables:
+          SCHEDULER_FREQUENCY: !Ref SchedulerFrequency
+          TAG_NAME: !Ref TagName
+          LOG_GROUP: !Ref SchedulerLogGroup
+          ACCOUNT: !Ref 'AWS::AccountId'
+          ISSUES_TOPIC_ARN: !Ref InstanceSchedulerSnsTopic
+          STACK_NAME: !Ref 'AWS::StackName'
+          BOTO_RETRY: '5,10,30,0.25'
+          ENV_BOTO_RETRY_LOGGING: 'FALSE'
+          SEND_METRICS: !FindInMap 
+            - mappings
+            - TrueFalse
+            - !Ref SendAnonymousData
+          SOLUTION_ID: !FindInMap 
+            - mappings
+            - Settings
+            - MetricsSolutionId
+          TRACE: !FindInMap 
+            - mappings
+            - TrueFalse
+            - !Ref Trace
+          USER_AGENT: !Join 
+            - ''
+            - - InstanceScheduler-
+              - !Ref 'AWS::StackName'
+              - '-v1.3.3'
+          METRICS_URL: !FindInMap 
+            - mappings
+            - Settings
+            - MetricsUrl
+          SCHEDULER_RULE: aws-instance-schedulerscheduling_rule
+          DDB_TABLE_NAME: !Ref StateTable
+          CONFIG_TABLE: !Ref ConfigTable
+          MAINTENANCE_WINDOW_TABLE: !Ref MaintenanceWindowTable
+          STATE_TABLE: !Ref StateTable
+      FunctionName: !Join 
+        - ''
+        - - !Ref 'AWS::StackName'
+          - '-InstanceSchedulerMain'
+      MemorySize: !Ref MemorySize
+      Timeout: 300
+    DependsOn:
+      - EC2DynamoDBPolicy
+      - SchedulerPolicy
+      - SchedulerRoleDefaultPolicy66F774B8
+      - SchedulerRole
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W58
+            reason: >-
+              Lambda functions has the required permission to write CloudWatch
+              Logs. It uses custom policy instead of
+              arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+              with more tighter permissions.
+  instanceschedulerlambdaLambdaFunctionLambdaInvokePermissionB1734834:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt 
+        - Main
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt 
+        - SchedulerRule
+        - Arn
+    Metadata:
+      'aws:cdk:path': >-
+        instance-scheduler/instance-scheduler-lambda/LambdaFunction/LambdaInvokePermission
+  StateTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      KeySchema:
+        - AttributeName: service
+          KeyType: HASH
+        - AttributeName: account-region
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: service
+          AttributeType: S
+        - AttributeName: account-region
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        KMSMasterKeyId: !Ref InstanceSchedulerEncryptionKey
+        SSEEnabled: true
+        SSEType: KMS
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/instance-scheduler-lambda/DynamoTable/Resource
+  ConfigTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      KeySchema:
+        - AttributeName: type
+          KeyType: HASH
+        - AttributeName: name
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: type
+          AttributeType: S
+        - AttributeName: name
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        KMSMasterKeyId: !Ref InstanceSchedulerEncryptionKey
+        SSEEnabled: true
+        SSEType: KMS
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/ConfigTable/Resource
+  MaintenanceWindowTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      KeySchema:
+        - AttributeName: Name
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: Name
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        KMSMasterKeyId: !Ref InstanceSchedulerEncryptionKey
+        SSEEnabled: true
+        SSEType: KMS
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/MaintenanceWindowTable/Resource
+  SchedulerRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Description: >-
+        Instance Scheduler - Rule to trigger instance for scheduler function
+        version v1.3.3
+      Name: aws-instance-schedulerscheduling_rule
+      ScheduleExpression: !FindInMap 
+        - mappings
+        - Timeouts
+        - !Ref SchedulerFrequency
+      State: !FindInMap 
+        - mappings
+        - EnabledDisabled
+        - !Ref SchedulingActive
+      Targets:
+        - Arn: !GetAtt 
+            - Main
+            - Arn
+          Id: Target0
+    Metadata:
+      'aws:cdk:path': instance-scheduler/EventlambdaConstruct/EventsRule/Resource
+  SchedulerConfigHelper:
+    Type: 'Custom::ServiceSetup'
+    Properties:
+      ServiceToken: !GetAtt 
+        - Main
+        - Arn
+      timeout: 120
+      config_table: !Ref ConfigTable
+      tagname: !Ref TagName
+      default_timezone: !Ref DefaultTimezone
+      use_metrics: !FindInMap 
+        - mappings
+        - TrueFalse
+        - !Ref UseCloudWatchMetrics
+      scheduled_services: !Split 
+        - ','
+        - !FindInMap 
+          - mappings
+          - Services
+          - !Ref ScheduledServices
+      schedule_clusters: !FindInMap 
+        - mappings
+        - TrueFalse
+        - !Ref ScheduleRdsClusters
+      create_rds_snapshot: !FindInMap 
+        - mappings
+        - TrueFalse
+        - !Ref CreateRdsSnapshot
+      regions: !Ref Regions
+      cross_account_roles: !Ref CrossAccountRoles
+      schedule_lambda_account: !FindInMap 
+        - mappings
+        - TrueFalse
+        - !Ref ScheduleLambdaAccount
+      trace: !FindInMap 
+        - mappings
+        - TrueFalse
+        - !Ref Trace
+      log_retention_days: !Ref LogRetentionDays
+      started_tags: !Ref StartedTags
+      stopped_tags: !Ref StoppedTags
+      stack_version: v1.3.3
+    DependsOn:
+      - SchedulerLogGroup
+      - instanceschedulerlambdaLambdaFunctionLambdaInvokePermissionB1734834
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      'aws:cdk:path': instance-scheduler/ServiceSetup/Default
+  EC2DynamoDBPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: Allow
+            Resource: 'arn:aws-us-gov:iam::*:role/*EC2SchedulerCross*'
+          - Action:
+              - 'ssm:GetParameter'
+              - 'ssm:GetParameters'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:ssm:*:'
+                - !Ref 'AWS::AccountId'
+                - ':parameter/*'
+          - Action:
+              - 'logs:DescribeLogStreams'
+              - 'rds:DescribeDBClusters'
+              - 'rds:DescribeDBInstances'
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeRegions'
+              - 'ec2:ModifyInstanceAttribute'
+              - 'cloudwatch:PutMetricData'
+              - 'ssm:DescribeMaintenanceWindows'
+              - 'tag:GetResources'
+            Effect: Allow
+            Resource: '*'
+          - Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+              - 'logs:PutRetentionPolicy'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws-us-gov:logs:us-gov-east-1:'
+                  - !Ref 'AWS::AccountId'
+                  - ':log-group:/aws/lambda/*'
+              - !GetAtt 
+                - SchedulerLogGroup
+                - Arn
+        Version: 2012-10-17
+      PolicyName: EC2DynamoDBPolicy
+      Roles:
+        - !Ref SchedulerRole
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W12
+            reason: >-
+              All policies have been scoped to be as restrictive as possible.
+              This solution needs to access ec2/rds resources across all
+              regions.
+  SchedulerPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 'rds:DeleteDBSnapshot'
+              - 'rds:DescribeDBSnapshots'
+              - 'rds:StopDBInstance'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:rds:*:'
+                - !Ref 'AWS::AccountId'
+                - ':snapshot:*'
+          - Action:
+              - 'rds:AddTagsToResource'
+              - 'rds:RemoveTagsFromResource'
+              - 'rds:DescribeDBSnapshots'
+              - 'rds:StartDBInstance'
+              - 'rds:StopDBInstance'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:rds:*:'
+                - !Ref 'AWS::AccountId'
+                - ':db:*'
+          - Action:
+              - 'ec2:StartInstances'
+              - 'ec2:StopInstances'
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:ec2:*:'
+                - !Ref 'AWS::AccountId'
+                - ':instance/*'
+          - Action: 'sns:Publish'
+            Effect: Allow
+            Resource: !Ref InstanceSchedulerSnsTopic
+          - Action: 'lambda:InvokeFunction'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:lambda:'
+                - 'us-gov-east-1'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':function:'
+                - !Ref 'AWS::StackName'
+                - '-InstanceSchedulerMain'
+          - Action:
+              - 'kms:GenerateDataKey*'
+              - 'kms:Decrypt'
+            Effect: Allow
+            Resource: !GetAtt 
+              - InstanceSchedulerEncryptionKey
+              - Arn
+          - Action:
+              - 'rds:AddTagsToResource'
+              - 'rds:RemoveTagsFromResource'
+              - 'rds:StartDBCluster'
+              - 'rds:StopDBCluster'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws-us-gov:rds:*:'
+                - !Ref 'AWS::AccountId'
+                - ':cluster:*'
+        Version: 2012-10-17
+      PolicyName: SchedulerPolicy
+      Roles:
+        - !Ref SchedulerRole
+    Metadata:
+      'aws:cdk:path': instance-scheduler/SchedulerPolicy/Resource
+Outputs:
+  AccountId:
+    Description: >-
+      Account to give access to when creating cross-account access role fro
+      cross account scenario 
+    Value: !Ref 'AWS::AccountId'
+  ConfigurationTable:
+    Description: Name of the DynamoDB configuration table
+    Value: !GetAtt 
+      - ConfigTable
+      - Arn
+  IssueSnsTopicArn:
+    Description: Topic to subscribe to for notifications of errors and warnings
+    Value: !Ref InstanceSchedulerSnsTopic
+  SchedulerRoleArn:
+    Description: Role for the instance scheduler lambda function
+    Value: !GetAtt 
+      - SchedulerRole
+      - Arn
+  ServiceInstanceScheduleServiceToken:
+    Description: >-
+      Arn to use as ServiceToken property for custom resource type
+      Custom::ServiceInstanceSchedule
+    Value: !GetAtt 
+      - Main
+      - Arn
